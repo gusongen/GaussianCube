@@ -14,7 +14,7 @@ from model.dpmsolver import NoiseScheduleVP, model_wrapper, DPM_Solver
 from utils import dist_util, logger
 from utils.script_util import create_gaussian_diffusion, init_volume_grid, build_single_viewpoint_cam
 from dataset.dataset_render import load_data
-from gaussian_renderer import render
+from gaussian_renderer import render, save_ply
 import imageio
 from tqdm import tqdm
 import glob
@@ -220,7 +220,9 @@ def main():
                 method='adaptive' if text_cond else 'multistep',
             )
             samples_denorm = samples * std + mean
-
+            # dump ply
+            if args.dump_ply:
+                save_ply(os.path.join(logger.get_dir(),'point_cloud.ply'),samples_denorm[0], std_volume, bg_color, args.active_sh_degree)
             frames = []
             for i, cam_info in enumerate(model_kwargs["cams"]):
                 cam = build_single_viewpoint_cam(cam_info, 0)
@@ -265,6 +267,7 @@ def create_argparser():
     parser.add_argument("--rescale_timesteps", type=int, default=100)
     parser.add_argument("--guidance_scale", type=float, default=2.0)
     parser.add_argument("--render_video", action="store_true")
+    parser.add_argument("--dump_ply", action="store_true")
     parser.add_argument("--text", type=str, default="A donut with blue frosting and sprinkles.")
  
     return parser

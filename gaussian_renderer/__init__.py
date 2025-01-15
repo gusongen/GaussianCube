@@ -12,7 +12,10 @@
 import torch
 import math
 from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
-
+import os
+import numpy as np
+from plyfile import PlyData, PlyElement
+import kiui
 
 def parse_volume_data(volume, std_volume_xyz, active_sh_degree=0):
     """
@@ -113,3 +116,38 @@ def render(viewpoint_camera, volume : torch.Tensor, std_volume : torch.Tensor, b
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
             "radii": radii}
+
+def save_ply(path, volume : torch.Tensor, std_volume : torch.Tensor, bg_color : torch.Tensor, active_sh_degree = 0, compatible=True):
+    os.makedirs(os.path.dirname(path),exist_ok=True)
+    pc = parse_volume_data(volume, std_volume, active_sh_degree)
+    xyz,shs,opacities,scale,rotation=pc['xyz'],pc['shs'],pc['opacities'],pc['scales'],pc['rots']
+    # invert activation to make it compatible with the original ply format
+    if compatible:
+        opacities = kiui.op.inverse_sigmoid(opacities)
+        scale = torch.log(scale + 1e-8)
+    xyz = xyz.detach().cpu().numpy()
+    normals = np.zeros_like(xyz)
+    f_dc = shs[:,0:1].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+    f_rest=torch.zeros((xyz.shape[0],45))
+    opacities = opacities.detach().cpu().numpy()
+    scale = scale.detach().cpu().numpy()
+    rotation = rotation.detach().cpu().numpy()
+    
+    l = ['x', 'y', 'z']
+    l.extend(['nx', 'ny', 'nz'])
+    # All channels except the 3 DC
+    for i in range(f_dc.shape[1]):
+        l.append('f_dc_{}'.format(i))
+    for i in range(45):
+        l.append(f"f_rest_{i}")
+    l.append('opacity')
+    for i in range(scale.shape[1]):
+        l.append('scale_{}'.format(i))
+    for i in range(rotation.shape[1]):
+        l.append('rot_{}'.format(i))
+    dtype_full = [(attribute, 'f4') for attribute in l]
+    elements = np.empty(xyz.shape[0], dtype=dtype_full)
+    attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+    elements[:] = list(map(tuple, attributes))
+    el = PlyElement.describe(elements, 'vertex')
+    PlyData([el]).write(path)
